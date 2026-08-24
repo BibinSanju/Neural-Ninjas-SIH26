@@ -65,7 +65,12 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db), current
         routing_flow = ["Supervisor (Qwen2.5)"]
         for msg in result["messages"]:
             if isinstance(msg, ToolMessage):
-                routing_flow.append(f"Tool executed: {msg.name}")
+                if msg.name == "transfer_to_coder":
+                    routing_flow.append("Delegation -> Coder Agent (Qwen2.5-Coder)")
+                    routing_flow.append("Tool executed: execute_python_code (Docker Sandbox)")
+                    routing_flow.append("Delegation Return -> Coder Agent (Qwen2.5-Coder)")
+                else:
+                    routing_flow.append(f"Tool executed: {msg.name}")
                 routing_flow.append("Supervisor (Qwen2.5)")
         
         # The last message is the final AI response
