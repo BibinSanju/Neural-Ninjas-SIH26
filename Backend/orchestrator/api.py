@@ -69,6 +69,10 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db), current
                     routing_flow.append("Delegation -> Coder Agent (Qwen2.5-Coder)")
                     routing_flow.append("Tool executed: execute_python_code (Docker Sandbox)")
                     routing_flow.append("Delegation Return -> Coder Agent (Qwen2.5-Coder)")
+                elif msg.name == "transfer_to_knowledge_base":
+                    routing_flow.append("Delegation -> Knowledge Base Agent (Llama3.1)")
+                    routing_flow.append("Tool executed: search_knowledge_base (RAG)")
+                    routing_flow.append("Delegation Return -> Knowledge Base Agent (Llama3.1)")
                 else:
                     routing_flow.append(f"Tool executed: {msg.name}")
                 routing_flow.append("Supervisor (Qwen2.5)")
