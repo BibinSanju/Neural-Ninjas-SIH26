@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+mcp[cli]
+langchain
+langgraph
+langchain-community
+langchain-ollama
+docker
+chromadb
+sentence-transformers
+python-docx
+openpyxl
+pydantic
+python-dotenv
