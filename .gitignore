@@ -1,2 +1,7 @@
 __pycache__/
 venv/
+workbench.db
+knowledge_base/
+uploads/
+test_flow.py
+sample_manual.txt

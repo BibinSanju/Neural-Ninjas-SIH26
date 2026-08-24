@@ -80,8 +80,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     else:
         raise ValueError(f"Unknown tool: {name}")
 
+import sys
+
 async def main():
     async with stdio_server() as (read_stream, write_stream):
+        print("MCP server started and listening on stdio...", file=sys.stderr)
         await app.run(read_stream, write_stream, app.create_initialization_options())
 
 if __name__ == "__main__":
