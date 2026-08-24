@@ -38,8 +38,21 @@ async def search_knowledge_base(query: str, n_results: int = 3) -> str:
         formatted_results = []
         for i, doc in enumerate(results['documents'][0]):
             metadata = results['metadatas'][0][i] if results['metadatas'] and results['metadatas'][0] else {}
-            source = metadata.get('source', 'Unknown Source')
-            formatted_results.append(f"--- Document {i+1} (Source: {source}) ---\n{doc}\n")
+            
+            # Extract rich metadata
+            doc_name = metadata.get('document_name', 'Unknown')
+            doc_type = metadata.get('type', 'Unknown')
+            ingest_time = metadata.get('date_time_of_ingestion', 'Unknown')
+            page_no = metadata.get('page_no', 'N/A')
+            
+            header = (
+                f"--- Result {i+1} ---\n"
+                f"Document: {doc_name} (Type: {doc_type})\n"
+                f"Page: {page_no}\n"
+                f"Ingested: {ingest_time}\n"
+                f"Content:\n{doc}\n"
+            )
+            formatted_results.append(header)
             
         return "\n".join(formatted_results)
     except Exception as e:
