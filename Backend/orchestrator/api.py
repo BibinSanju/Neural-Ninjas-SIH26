@@ -38,15 +38,16 @@ app = FastAPI(title="Sovereign AI Workbench API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins for local testing
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include Routers
 app.include_router(auth_router)
 app.include_router(files_router)
+
 
 # Global reference to the compiled agent graph
 agent_executor = None
