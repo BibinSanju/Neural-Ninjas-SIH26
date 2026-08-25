@@ -3,13 +3,19 @@ import os
 from langchain_neo4j import Neo4jGraph, Neo4jVector
 from langchain_huggingface import HuggingFaceEmbeddings
 
-# Ensure environment variables for Neo4j
-os.environ["NEO4J_URI"] = "bolt://localhost:7687"
-os.environ["NEO4J_USERNAME"] = "neo4j"
-os.environ["NEO4J_PASSWORD"] = "industrial_password_2026"
+# Ensure environment variables for Neo4j (Can be overridden via .env or system env)
+os.environ["NEO4J_URI"] = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+os.environ["NEO4J_USERNAME"] = os.getenv("NEO4J_USERNAME", "neo4j")
+os.environ["NEO4J_PASSWORD"] = os.getenv("NEO4J_PASSWORD", "industrial_password_2026")
 
-# Initialize embeddings globally so it only loads into memory once (saves 45 seconds per tool call!)
-embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-large-en-v1.5")
+# Lazy embeddings initialization to prevent server startup timeout during import
+_embeddings = None
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-large-en-v1.5")
+    return _embeddings
 
 async def search_knowledge_base(query: str, clearance_level: str) -> str:
     """
@@ -21,6 +27,7 @@ async def search_knowledge_base(query: str, clearance_level: str) -> str:
         graph = Neo4jGraph(refresh_schema=False)
         graph.refresh_schema = lambda: None
 
+        embeddings = get_embeddings()
         
         # We execute a vector search against the 'document_vector_index' 
         # But we filter nodes where node.clearance_level <= user_clearance
@@ -33,6 +40,7 @@ async def search_knowledge_base(query: str, clearance_level: str) -> str:
             embedding=embeddings,
             index_name="document_vector_index",
             keyword_index_name="document_keyword_index",
+
             search_type="vector"
         )
         
@@ -62,13 +70,15 @@ async def search_knowledge_base(query: str, clearance_level: str) -> str:
             doc_id = metadata.get('doc_id')
             graph_context = ""
             if doc_id:
-                # Find connected nodes
+                # Find connected nodes with clearance verification
+                user_clearance_int = int(clearance_level) if clearance_level and clearance_level.isdigit() else 1
                 traversal_query = '''
                 MATCH (d:Document {doc_id: $doc_id})-[r]-(connected)
+                WHERE connected.clearance_level IS NULL OR connected.clearance_level <= $user_clearance
                 RETURN type(r) as rel, labels(connected) as labels, connected.id as name
                 LIMIT 5
                 '''
-                connected_nodes = graph.query(traversal_query, params={"doc_id": doc_id})
+                connected_nodes = graph.query(traversal_query, params={"doc_id": doc_id, "user_clearance": user_clearance_int})
                 if connected_nodes:
                     graph_context = "\nLinked Graph Entities:\n"
                     for rel in connected_nodes:

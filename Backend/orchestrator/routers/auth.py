@@ -8,9 +8,12 @@ import datetime
 from database.db import get_db
 from database.models import User, Role, Department
 
+import os
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SECRET_KEY = "super_secret_airgapped_key" # In production, load from env
+# Ensure SECRET_KEY is at least 32 bytes to fix InsecureKeyLengthWarning for SHA256
+SECRET_KEY = os.getenv("SECRET_KEY", "super_secret_airgapped_key_32_bytes_min_len") 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 1 day
 
@@ -92,28 +95,49 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, OAuth2PasswordBearer
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    oauth_token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> User:
+    token = None
+    if credentials and credentials.credentials:
+        token = credentials.credentials
+    elif oauth_token:
+        token = oauth_token
+
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication token missing")
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token has expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
 
 def require_permissions(required_permissions: list[str]):
-    def role_checker(current_user: dict = Depends(get_current_user)):
-        user_permissions = current_user.get("permissions", [])
+    def role_checker(current_user: User = Depends(get_current_user)):
+        user_permissions = [p.name for p in current_user.role.permissions] if current_user.role else []
         if "ADMIN" in user_permissions: # Super Admin bypass
             return current_user
         for perm in required_permissions:
             if perm not in user_permissions:
-                raise HTTPException(status_code=403, detail=f"Operation not permitted. Missing permission: {perm}")
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Operation not permitted. Missing permission: {perm}")
         return current_user
     return role_checker
+
 

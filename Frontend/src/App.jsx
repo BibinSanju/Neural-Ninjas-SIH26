@@ -28,7 +28,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Active LLM Model State
-  const [activeModel, setActiveModel] = useState('Qwen2.5-Coder-32B');
+  const [activeModel, setActiveModel] = useState('Qwen2.5:7b');
 
   // Workspaces Data
   const [workspaces, setWorkspaces] = useState([

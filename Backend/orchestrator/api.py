@@ -65,13 +65,21 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db), current
     if not agent_executor:
         raise HTTPException(status_code=500, detail="Agent is not initialized yet.")
     
-    # We pass the user message and their clearance level to the graph
     from orchestrator.routers.files import get_clearance_level
+    from database.models import File
+    
     role_name = current_user.role.name if current_user.role else "Employee"
     clearance_level = get_clearance_level(role_name)
     
+    # Get user's uploaded files to provide context to the agent
+    user_files = db.query(File).filter(File.user_id == current_user.id).all()
+    file_context = "No files uploaded."
+    if user_files:
+        file_context = "\n".join([f"- {f.original_filename} (Path: {f.file_path})" for f in user_files])
+    
     enriched_message = (
         f"USER CLEARANCE LEVEL: {clearance_level}\n"
+        f"USER UPLOADED FILES AVAILABLE TO YOU:\n{file_context}\n\n"
         f"USER REQUEST: {req.message}"
     )
     
@@ -97,6 +105,10 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db), current
                     routing_flow.append("Delegation -> Deliverable Synth Agent (Mistral)")
                     routing_flow.append("Tool executed: generate_document")
                     routing_flow.append("Delegation Return -> Deliverable Synth Agent (Mistral)")
+                elif msg.name == "transfer_to_vision":
+                    routing_flow.append("Delegation -> Vision Expert Agent (Qwen2.5-VL)")
+                    routing_flow.append("Tool executed: analyze_image (Multimodal)")
+                    routing_flow.append("Delegation Return -> Vision Expert Agent (Qwen2.5-VL)")
                 else:
                     routing_flow.append(f"Tool executed: {msg.name}")
                 routing_flow.append("Supervisor (Qwen2.5)")

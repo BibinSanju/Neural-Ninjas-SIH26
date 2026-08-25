@@ -5,6 +5,7 @@ from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
 from langgraph.graph.message import add_messages
 import os
+import base64
 
 from orchestrator.mcp_client import LocalMCPClient
 
@@ -13,16 +14,19 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 # Initialize LLMs with keep_alive=0 to unload immediately and save VRAM
-supervisor_llm = ChatOllama(model="qwen2.5", temperature=0, keep_alive=0)
-coder_llm = ChatOllama(model="qwen2.5-coder", temperature=0, keep_alive=0)
-kb_llm = ChatOllama(model="qwen2.5", temperature=0, keep_alive=0)
-synth_llm = ChatOllama(model="mistral", temperature=0, keep_alive=0)
+# Explicitly use :7b tags to match the pulled Ollama images!
+supervisor_llm = ChatOllama(model="qwen2.5:7b", temperature=0, keep_alive=0)
+coder_llm = ChatOllama(model="qwen2.5-coder:7b", temperature=0, keep_alive=0)
+kb_llm = ChatOllama(model="qwen2.5:7b", temperature=0, keep_alive=0)
+synth_llm = ChatOllama(model="mistral:latest", temperature=0, keep_alive=0)
+vision_llm = ChatOllama(model="qwen2.5vl:7b", temperature=0, keep_alive=0)
 
 # We will initialize the MCP client globally for the graph
 MCP_SERVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mcp_server", "server.py")
 mcp_client = LocalMCPClient(MCP_SERVER_PATH)
 
 async def create_agent_executor():
+
     """Initializes the MCP client, builds Langchain tools, and returns a compiled Multi-Agent graph."""
     await mcp_client.connect()
     
@@ -41,6 +45,28 @@ async def create_agent_executor():
     async def generate_word_document(title: str, content: str, filepath: str) -> str:
         """Generates a .docx approval note or report."""
         return await mcp_client.call_tool("generate_word_document", {"title": title, "content": content, "filepath": filepath})
+        
+    @tool
+    async def analyze_image(image_path: str, question: str) -> str:
+        """Analyzes an image (e.g. diagrams, schematics, photos) to answer a question. 
+        Pass the absolute path to the uploaded image file."""
+        import base64
+        try:
+            with open(image_path, "rb") as image_file:
+                image_b64 = base64.b64encode(image_file.read()).decode("utf-8")
+                
+            from langchain_core.messages import HumanMessage
+            msg = HumanMessage(
+                content=[
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+                ]
+            )
+            # Delegate directly to the Vision LLM (llama3.2-vision)
+            response = await vision_llm.ainvoke([msg])
+            return response.content
+        except Exception as e:
+            return f"Error analyzing image: {str(e)}"
         
     @tool
     async def generate_excel_spreadsheet(csv_data: str, filepath: str) -> str:
@@ -77,6 +103,14 @@ async def create_agent_executor():
         output = result["messages"][-1].content
         return f"Successfully executed. The Knowledge Base Agent returned: {output}\n(Supervisor Note: Review the user's request and proceed to the next step, such as the Coder Agent if calculations are needed.)"
 
+    # Vision Expert Integration
+    @tool
+    async def transfer_to_vision(image_path: str, question: str) -> str:
+        """Delegates image and diagram analysis to the Vision Expert Agent. Pass the absolute image path and the specific question."""
+        print(f"\n[Routing] Supervisor handing off to Vision Agent with image: {image_path}")
+        output = await analyze_image.ainvoke({"image_path": image_path, "question": question})
+        return f"Successfully executed. The Vision Agent returned: {output}"
+
     # 4. Build the Deliverable Synth Specialist Agent
     synth_tools = [generate_word_document, generate_excel_spreadsheet]
     synth_system_prompt = (
@@ -101,7 +135,8 @@ async def create_agent_executor():
     supervisor_tools = [
         transfer_to_coder,
         transfer_to_knowledge_base,
-        transfer_to_deliverable_synth
+        transfer_to_deliverable_synth,
+        transfer_to_vision
     ]
     
     system_prompt = (
@@ -110,7 +145,8 @@ async def create_agent_executor():
         "Available Specialists:\n"
         "- Knowledge Base Agent (use `transfer_to_knowledge_base`): For searching internal documents and retrieving factual numbers.\n"
         "- Coder Agent (use `transfer_to_coder`): For ALL math, calculations, and python execution.\n"
-        "- Deliverable Synth Agent (use `transfer_to_deliverable_synth`): For generating files, saving reports (.docx), and creating spreadsheets.\n\n"
+        "- Deliverable Synth Agent (use `transfer_to_deliverable_synth`): For generating files, saving reports (.docx), and creating spreadsheets.\n"
+        "- Vision Expert Agent (use `transfer_to_vision`): For analyzing images, diagrams, schematics, and photos provided by the user.\n\n"
         "Instructions:\n"
         "1. Delegate tasks sequentially (e.g. Knowledge Base -> Coder -> Deliverable Synth).\n"
         "2. CRITICAL: When handing off tasks between agents, you MUST explicitly include ALL raw numbers, arrays, and data in your instructions. Do not summarize; pass the exact numbers!\n"

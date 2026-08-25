@@ -124,7 +124,7 @@ export default function ChatView({ currentWs, userRole, userPermissions, files, 
     const agentMsgId = newMsgId + 1;
     const agentThinkingMsg = {
       id: agentMsgId,
-      sender: `SecOps Analyst (${activeModel})`,
+      sender: `Supervisor (${activeModel})`,
       avatar: 'agent',
       timestamp: timeStr,
       checklist: [

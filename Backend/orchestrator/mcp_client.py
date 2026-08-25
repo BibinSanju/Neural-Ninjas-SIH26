@@ -30,26 +30,43 @@ class LocalMCPClient:
         print(f"Connected to MCP Server at {self.server_script_path}")
 
     async def get_tools(self):
-        """Returns available tools from the MCP server."""
+        """Returns available tools from the MCP server, auto-connecting if needed."""
         if not self.session:
-            raise RuntimeError("Not connected to MCP server.")
-        response = await self.session.list_tools()
-        return response.tools
+            await self.connect()
+        try:
+            response = await self.session.list_tools()
+            return response.tools
+        except Exception:
+            # Retry after re-establishing connection
+            await self.disconnect()
+            await self.connect()
+            response = await self.session.list_tools()
+            return response.tools
 
     async def call_tool(self, name: str, arguments: dict) -> str:
         """Calls a tool on the MCP server."""
         if not self.session:
-            raise RuntimeError("Not connected to MCP server.")
-        response = await self.session.call_tool(name, arguments)
+            print("[MCP Client] Connection lost or not established. Reconnecting...")
+            await self.connect()
         
+        try:
+            response = await self.session.call_tool(name, arguments)
+        except Exception as e:
+            print(f"[MCP Client] Error calling tool {name}: {e}")
+            raise
+            
         # Assuming TextContent response type based on our server implementation
         if response.content and hasattr(response.content[0], 'text'):
             return response.content[0].text
         return str(response.content)
 
     async def disconnect(self):
-        """Disconnects from the server."""
+        """Disconnects from the server cleanly."""
         if self._exit_stack:
-            await self._exit_stack.aclose()
+            try:
+                await self._exit_stack.aclose()
+            except Exception:
+                pass
             self.session = None
             self._exit_stack = None
+
