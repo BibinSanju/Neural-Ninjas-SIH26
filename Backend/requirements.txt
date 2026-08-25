@@ -6,9 +6,16 @@ langgraph
 langchain-community
 langchain-ollama
 docker
-chromadb
+neo4j
+langchain-experimental
+langchain-neo4j
+langchain-huggingface
 sentence-transformers
 python-docx
 openpyxl
 pydantic
 python-dotenv
+sqlalchemy
+bcrypt
+PyJWT
+python-multipart

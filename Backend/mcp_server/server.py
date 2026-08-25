@@ -26,13 +26,14 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_knowledge_base",
-            description="Searches the internal knowledge base for the given query.",
+            description="Searches the internal knowledge base for the given query using GraphRAG.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "The search query to look up in the vector store"}
+                    "query": {"type": "string", "description": "The search query to look up in the vector store"},
+                    "clearance_level": {"type": "string", "description": "The user's clearance level (e.g. 1, 3, 5) for RBAC filtering"}
                 },
-                "required": ["query"]
+                "required": ["query", "clearance_level"]
             }
         ),
         Tool(
@@ -54,10 +55,13 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "data_json": {"type": "string", "description": "A JSON string representing an array of objects (rows)"},
+                    "csv_data": {
+                        "type": "string",
+                        "description": "A multi-line CSV string containing the headers and rows to be written to the spreadsheet."
+                    },
                     "filepath": {"type": "string", "description": "Destination file path (e.g. data.xlsx)"}
                 },
-                "required": ["data_json", "filepath"]
+                "required": ["csv_data", "filepath"]
             }
         )
     ]
@@ -69,13 +73,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = await execute_python_code(arguments["code"])
         return [TextContent(type="text", text=result)]
     elif name == "search_knowledge_base":
-        result = await search_knowledge_base(arguments["query"])
+        result = await search_knowledge_base(arguments["query"], arguments["clearance_level"])
         return [TextContent(type="text", text=result)]
     elif name == "generate_word_document":
         result = await generate_word_document(arguments["title"], arguments["content"], arguments["filepath"])
         return [TextContent(type="text", text=result)]
     elif name == "generate_excel_spreadsheet":
-        result = await generate_excel_spreadsheet(arguments["data_json"], arguments["filepath"])
+        result = await generate_excel_spreadsheet(arguments["csv_data"], arguments["filepath"])
         return [TextContent(type="text", text=result)]
     else:
         raise ValueError(f"Unknown tool: {name}")
