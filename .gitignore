@@ -5,3 +5,6 @@ knowledge_base/
 uploads/
 test_flow.py
 sample_manual.txt
+test_flow_word.py
+test_flow_excel.py
+financial_baseline.txt

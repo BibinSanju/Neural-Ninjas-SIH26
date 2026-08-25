@@ -59,7 +59,7 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db), current
     
     try:
         # We await the graph invocation
-        result = await agent_executor.ainvoke(inputs)
+        result = await agent_executor.ainvoke(inputs, config={"recursion_limit": 10})
         
         # Build the routing flow visually from the messages
         routing_flow = ["Supervisor (Qwen2.5)"]
@@ -73,6 +73,10 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db), current
                     routing_flow.append("Delegation -> Knowledge Base Agent (Llama3.1)")
                     routing_flow.append("Tool executed: search_knowledge_base (RAG)")
                     routing_flow.append("Delegation Return -> Knowledge Base Agent (Llama3.1)")
+                elif msg.name == "transfer_to_deliverable_synth":
+                    routing_flow.append("Delegation -> Deliverable Synth Agent (Mistral)")
+                    routing_flow.append("Tool executed: generate_document")
+                    routing_flow.append("Delegation Return -> Deliverable Synth Agent (Mistral)")
                 else:
                     routing_flow.append(f"Tool executed: {msg.name}")
                 routing_flow.append("Supervisor (Qwen2.5)")

@@ -30,30 +30,26 @@ async def generate_word_document(title: str, content: str, filepath: str) -> str
     except Exception as e:
         return f"Failed to generate Word document: {str(e)}"
 
-async def generate_excel_spreadsheet(data_json: str, filepath: str) -> str:
+import csv
+import io
+
+async def generate_excel_spreadsheet(csv_data: str, filepath: str) -> str:
     """
-    Generates an Excel spreadsheet from a JSON string representing an array of objects.
+    Generates an Excel spreadsheet from a CSV string.
     """
     try:
-        data = json.loads(data_json)
-        if not isinstance(data, list) or not data:
-            return "Error: data_json must be a non-empty JSON array of objects."
+        if not csv_data or not csv_data.strip():
+            return "Error: csv_data cannot be empty."
             
         wb = Workbook()
         ws = wb.active
         
-        # Extract headers from the first object
-        headers = list(data[0].keys())
-        ws.append(headers)
-        
-        # Add rows
-        for item in data:
-            row = [item.get(h, "") for h in headers]
+        # Read the CSV data
+        reader = csv.reader(io.StringIO(csv_data.strip()))
+        for row in reader:
             ws.append(row)
             
         wb.save(filepath)
         return f"Successfully generated Excel spreadsheet at {os.path.abspath(filepath)}"
-    except json.JSONDecodeError:
-        return "Failed to parse data_json. Ensure it is valid JSON."
     except Exception as e:
         return f"Failed to generate Excel spreadsheet: {str(e)}"
