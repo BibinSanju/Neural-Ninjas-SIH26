@@ -1,5 +1,5 @@
 # 🛡️ Sovereign Air-Gapped AI Workbench
-### Zero-Trust Multi-Agent Orchestration & Deterministic Engineering System for Industrial, Energy & PSU Infrastructure
+### Zero-Trust Multi-Agent Orchestration & Deterministic Engineering System for Industrial, Energy & PSU Infrastructure  ""
 
 [![License](https://img.shields.io/badge/License-Proprietary%20%2F%20Confidential-red.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg?logo=python)](https://www.python.org/)
