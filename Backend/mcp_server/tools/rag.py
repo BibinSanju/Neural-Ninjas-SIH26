@@ -1,59 +1,90 @@
-import chromadb
-from chromadb.utils import embedding_functions
+import sys
 import os
+from langchain_neo4j import Neo4jGraph, Neo4jVector
+from langchain_huggingface import HuggingFaceEmbeddings
 
-# Initialize ChromaDB client. We'll use a local persistent directory for the vector store.
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "knowledge_base")
-os.makedirs(DB_PATH, exist_ok=True)
+# Ensure environment variables for Neo4j
+os.environ["NEO4J_URI"] = "bolt://localhost:7687"
+os.environ["NEO4J_USERNAME"] = "neo4j"
+os.environ["NEO4J_PASSWORD"] = "industrial_password_2026"
 
-# Note: BGE-Large is excellent for retrieval. Using the SentenceTransformer embedding function.
-# The user's system will download the model weights on first run if not cached.
-embedding_func = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="BAAI/bge-large-en-v1.5")
+# Initialize embeddings globally so it only loads into memory once (saves 45 seconds per tool call!)
+embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-large-en-v1.5")
 
-client = chromadb.PersistentClient(path=DB_PATH)
-
-try:
-    collection = client.get_or_create_collection(name="internal_manuals", embedding_function=embedding_func)
-except Exception as e:
-    print(f"Warning: Could not initialize ChromaDB collection: {e}")
-    collection = None
-
-async def search_knowledge_base(query: str, n_results: int = 3) -> str:
+async def search_knowledge_base(query: str, clearance_level: str) -> str:
     """
-    Searches the local ChromaDB vector store for documents related to the query.
-    Returns the most relevant chunks of text.
+    Searches the GraphRAG Neo4j store for documents related to the query.
+    Enforces Graph-Native RBAC based on clearance_level.
     """
-    if not collection:
-        return "Error: Knowledge base collection is not initialized."
-        
     try:
-        results = collection.query(
-            query_texts=[query],
-            n_results=n_results
+        # We use a direct Cypher query for Hybrid Search + RBAC
+        graph = Neo4jGraph(refresh_schema=False)
+        graph.refresh_schema = lambda: None
+
+        
+        # We execute a vector search against the 'document_vector_index' 
+        # But we filter nodes where node.clearance_level <= user_clearance
+        # In Neo4j 5.x, db.index.vector.queryNodes is used.
+        # However, to keep it simple, we can use the langchain Neo4jVector for similarity search, 
+        # or we can write a raw Cypher query combining vector index and graph traversal.
+        
+        # Let's instantiate the Neo4jVector to get the underlying vector search
+        vector_store = Neo4jVector.from_existing_index(
+            embedding=embeddings,
+            index_name="document_vector_index",
+            keyword_index_name="document_keyword_index",
+            search_type="vector"
         )
         
-        if not results['documents'] or not results['documents'][0]:
-            return "No relevant information found in the knowledge base."
+        # We can use similarity_search with a metadata filter!
+        # This will filter at the DB level, enforcing RBAC natively.
+        results = vector_store.similarity_search(
+            query=query, 
+            k=3,
+            filter={"clearance_level": {"$lte": int(clearance_level)}}
+        )
+        
+        if not results:
+            return "No relevant information found in the knowledge base within your clearance level."
             
         formatted_results = []
-        for i, doc in enumerate(results['documents'][0]):
-            metadata = results['metadatas'][0][i] if results['metadatas'] and results['metadatas'][0] else {}
-            
-            # Extract rich metadata
+        for i, doc in enumerate(results):
+            metadata = doc.metadata
             doc_name = metadata.get('document_name', 'Unknown')
             doc_type = metadata.get('type', 'Unknown')
             ingest_time = metadata.get('date_time_of_ingestion', 'Unknown')
             page_no = metadata.get('page_no', 'N/A')
+            doc_clearance = metadata.get('clearance_level', 'N/A')
+            
+            # Additional Graph Traversal Context
+            # For a true GraphRAG, we also fetch connected graph nodes (Concepts/Components)
+            # extracted by the LLMGraphTransformer.
+            doc_id = metadata.get('doc_id')
+            graph_context = ""
+            if doc_id:
+                # Find connected nodes
+                traversal_query = '''
+                MATCH (d:Document {doc_id: $doc_id})-[r]-(connected)
+                RETURN type(r) as rel, labels(connected) as labels, connected.id as name
+                LIMIT 5
+                '''
+                connected_nodes = graph.query(traversal_query, params={"doc_id": doc_id})
+                if connected_nodes:
+                    graph_context = "\nLinked Graph Entities:\n"
+                    for rel in connected_nodes:
+                        graph_context += f" - [{rel['rel']}] -> {rel['labels'][0]}: {rel['name']}\n"
             
             header = (
                 f"--- Result {i+1} ---\n"
                 f"Document: {doc_name} (Type: {doc_type})\n"
                 f"Page: {page_no}\n"
                 f"Ingested: {ingest_time}\n"
-                f"Content:\n{doc}\n"
+                f"Clearance Level: {doc_clearance}\n"
+                f"Content:\n{doc.page_content}\n"
+                f"{graph_context}"
             )
             formatted_results.append(header)
             
         return "\n".join(formatted_results)
     except Exception as e:
-        return f"Search failed: {str(e)}"
+        return f"GraphRAG Search failed: {str(e)}"

@@ -26,13 +26,14 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_knowledge_base",
-            description="Searches the internal knowledge base for the given query.",
+            description="Searches the internal knowledge base for the given query using GraphRAG.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "The search query to look up in the vector store"}
+                    "query": {"type": "string", "description": "The search query to look up in the vector store"},
+                    "clearance_level": {"type": "string", "description": "The user's clearance level (e.g. 1, 3, 5) for RBAC filtering"}
                 },
-                "required": ["query"]
+                "required": ["query", "clearance_level"]
             }
         ),
         Tool(
@@ -72,7 +73,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = await execute_python_code(arguments["code"])
         return [TextContent(type="text", text=result)]
     elif name == "search_knowledge_base":
-        result = await search_knowledge_base(arguments["query"])
+        result = await search_knowledge_base(arguments["query"], arguments["clearance_level"])
         return [TextContent(type="text", text=result)]
     elif name == "generate_word_document":
         result = await generate_word_document(arguments["title"], arguments["content"], arguments["filepath"])

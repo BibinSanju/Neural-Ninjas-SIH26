@@ -8,3 +8,13 @@ sample_manual.txt
 test_flow_word.py
 test_flow_excel.py
 financial_baseline.txt
+outputs/
+*.docx
+*.xlsx
+
+# Frontend
+Frontend/node_modules/
+Frontend/dist/
+Frontend/.env
+Frontend/.env.*
+Frontend/.DS_Store

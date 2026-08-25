@@ -29,6 +29,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+def get_clearance_level(role_name: str) -> str:
+    if not role_name:
+        return "1"
+    role = role_name.lower()
+    if "admin" in role:
+        return "5"
+    elif "engineer" in role:
+        return "3"
+    else:
+        return "1"
+
 @router.post("/upload")
 async def upload_file(file: UploadFile = FastAPIFile(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     file_id = str(uuid.uuid4())
@@ -44,10 +55,13 @@ async def upload_file(file: UploadFile = FastAPIFile(...), db: Session = Depends
     # Trigger ingest.py
     ingest_script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts", "ingest.py")
     
+    role_name = current_user.role.name if current_user.role else "Employee"
+    clearance_level = get_clearance_level(role_name)
+
     # Run the ingestion synchronously for simplicity in the prototype
     try:
         subprocess.run(
-            ["python", ingest_script_path, "ingest", file_path, file_id, file.filename],
+            ["python", ingest_script_path, "ingest", file_path, file_id, file.filename, clearance_level],
             check=True,
             capture_output=True,
             text=True

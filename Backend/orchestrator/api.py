@@ -32,7 +32,17 @@ async def lifespan(app: FastAPI):
     await mcp_client.disconnect()
     print("Disconnected.")
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Sovereign AI Workbench API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins for local testing
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # Include Routers
 app.include_router(auth_router)
@@ -54,8 +64,17 @@ async def chat_endpoint(req: ChatRequest, db: Session = Depends(get_db), current
     if not agent_executor:
         raise HTTPException(status_code=500, detail="Agent is not initialized yet.")
     
-    # We pass the user message to the graph
-    inputs = {"messages": [HumanMessage(content=req.message)]}
+    # We pass the user message and their clearance level to the graph
+    from orchestrator.routers.files import get_clearance_level
+    role_name = current_user.role.name if current_user.role else "Employee"
+    clearance_level = get_clearance_level(role_name)
+    
+    enriched_message = (
+        f"USER CLEARANCE LEVEL: {clearance_level}\n"
+        f"USER REQUEST: {req.message}"
+    )
+    
+    inputs = {"messages": [HumanMessage(content=enriched_message)]}
     
     try:
         # We await the graph invocation

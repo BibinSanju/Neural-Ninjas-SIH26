@@ -12,11 +12,11 @@ from orchestrator.mcp_client import LocalMCPClient
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
-# Initialize LLMs
-supervisor_llm = ChatOllama(model="qwen2.5", temperature=0)
-coder_llm = ChatOllama(model="qwen2.5-coder", temperature=0)
-kb_llm = ChatOllama(model="llama3.1", temperature=0)
-synth_llm = ChatOllama(model="mistral", temperature=0)
+# Initialize LLMs with keep_alive=0 to unload immediately and save VRAM
+supervisor_llm = ChatOllama(model="qwen2.5", temperature=0, keep_alive=0)
+coder_llm = ChatOllama(model="qwen2.5-coder", temperature=0, keep_alive=0)
+kb_llm = ChatOllama(model="qwen2.5", temperature=0, keep_alive=0)
+synth_llm = ChatOllama(model="mistral", temperature=0, keep_alive=0)
 
 # We will initialize the MCP client globally for the graph
 MCP_SERVER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mcp_server", "server.py")
@@ -33,9 +33,9 @@ async def create_agent_executor():
         return await mcp_client.call_tool("execute_python_code", {"code": code})
         
     @tool
-    async def search_knowledge_base(query: str) -> str:
-        """Searches the internal knowledge base for the given query."""
-        return await mcp_client.call_tool("search_knowledge_base", {"query": query})
+    async def search_knowledge_base(query: str, clearance_level: str) -> str:
+        """Searches the internal knowledge base for the given query with the user's clearance_level."""
+        return await mcp_client.call_tool("search_knowledge_base", {"query": query, "clearance_level": clearance_level})
         
     @tool
     async def generate_word_document(title: str, content: str, filepath: str) -> str:
@@ -61,11 +61,17 @@ async def create_agent_executor():
 
     # 3. Build the Knowledge Base Specialist Agent
     kb_tools = [search_knowledge_base]
-    kb_agent = create_react_agent(kb_llm, kb_tools)
+    kb_system_prompt = (
+        "You are the Knowledge Base Agent. "
+        "You have access to the search_knowledge_base tool. "
+        "When the supervisor gives you instructions, they will provide a 'clearance_level'. "
+        "You MUST pass this exact clearance_level as an argument to the search_knowledge_base tool."
+    )
+    kb_agent = create_react_agent(kb_llm, kb_tools, prompt=kb_system_prompt)
     
     @tool
     async def transfer_to_knowledge_base(instructions: str) -> str:
-        """Delegates document retrieval and fact-finding tasks to the specialized Knowledge Base Agent. Give it clear instructions about what to search for."""
+        """Delegates document retrieval and fact-finding tasks to the specialized Knowledge Base Agent. Give it clear instructions about what to search for and include the user's clearance_level."""
         print(f"\n[Routing] Supervisor handing off to Knowledge Base Agent with instructions: {instructions}")
         result = await kb_agent.ainvoke({"messages": [HumanMessage(content=instructions)]}, config={"recursion_limit": 5})
         output = result["messages"][-1].content
@@ -108,9 +114,11 @@ async def create_agent_executor():
         "Instructions:\n"
         "1. Delegate tasks sequentially (e.g. Knowledge Base -> Coder -> Deliverable Synth).\n"
         "2. CRITICAL: When handing off tasks between agents, you MUST explicitly include ALL raw numbers, arrays, and data in your instructions. Do not summarize; pass the exact numbers!\n"
-        "3. Wait for each tool to return before deciding the next step.\n"
-        "4. If the user asks for a file, you MUST pass the final data to the Deliverable Synth Agent to generate it.\n"
-        "5. Do NOT stop until ALL parts of the user's request are fulfilled."
+        "3. CRITICAL: You will receive the user's CLEARANCE LEVEL in the initial prompt. You MUST include this clearance level in your instructions to the Knowledge Base Agent!\n"
+        "4. CRITICAL: If the Knowledge Base Agent reports 'Access Denied', 'No relevant information found', or fails to find the required data, DO NOT proceed to the Coder or Synth agents! You must abort the workflow immediately and reply to the user that they lack clearance.\n"
+        "5. Wait for each tool to return before deciding the next step.\n"
+        "6. If the user asks for a file, you MUST pass the final data to the Deliverable Synth Agent to generate it.\n"
+        "7. Do NOT stop until ALL parts of the user's request are fulfilled (unless aborted due to clearance)."
     )
     
     supervisor_agent = create_react_agent(supervisor_llm, supervisor_tools, prompt=system_prompt)
